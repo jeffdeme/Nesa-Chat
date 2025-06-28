@@ -1,0 +1,45 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Category {
+  id    Int    @id @default(autoincrement())
+  name  String
+  @@map("categories")
+  @@unique([name])
+}
+
+model Message {
+  id        Int      @id @default(autoincrement())
+  room      String
+  username  String
+  userId    String
+  text      String
+  timestamp DateTime @default(now())
+  @@map("messages")
+  @@index([room])
+}
+
+model Poll {
+  id       Int    @id @default(autoincrement())
+  room     String
+  question String
+  votes    Vote[]
+  @@map("polls")
+  @@index([room])
+}
+
+model Vote {
+  id      Int    @id @default(autoincrement())
+  option  String
+  count   Int
+  Poll    Poll   @relation(fields: [pollId], references: [id])
+  pollId  Int
+  @@map("votes")
+  @@index([pollId])
+}
