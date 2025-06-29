@@ -26,7 +26,7 @@ const io = new Server(server, {
     },
 });
 
-// the categories and the subcategory groupchat
+// --- Category Groups ---
 const categoryGroups = {
     BestMediaOrganizationinEducationalAdvocacyNigeria: [
         'Best Print Media Educational Advocacy Award',
@@ -214,6 +214,63 @@ const categoryGroups = {
 
 };
 
+// --- Seed Categories with Parent-Child Relationships ---
+// Only create main categories if they do not exist.
+// For each main category, update its subcategories (do not create subcategories if they do not exist).
+async function seedCategories() {
+    try {
+        for (const [mainCategory, subcategories] of Object.entries(categoryGroups)) {
+            // Create/find main category (parentId: null)
+            let main = await prisma.category.findUnique({ where: { name: mainCategory } });
+            if (!main) {
+                main = await prisma.category.create({ data: { name: mainCategory, parentId: null } });
+            }
+            // For each subcategory, if it exists, update its parentId to this main category
+            for (const sub of subcategories) {
+                let subCat = await prisma.category.findUnique({ where: { name: sub } });
+                if (subCat && subCat.parentId !== main.id) {
+                    await prisma.category.update({
+                        where: { id: subCat.id },
+                        data: { parentId: main.id }
+                    });
+                }
+                // If subCat does not exist, do nothing (do not create)
+            }
+        }
+        console.log('Categories seeded.');
+    } catch (err) {
+        console.error('Error seeding categories:', err);
+    }
+}
+
+// --- Start Server Only After DB Connect & Seeding ---
+async function startServer() {
+    try {
+        // Test DB connection
+        await prisma.$connect();
+        console.log('Connected to database.');
+
+        // Seed categories
+        await seedCategories();
+
+        // Start HTTP/Socket server
+        const PORT = process.env.PORT || 3000;
+        server.listen(PORT, (err) => {
+            if (err) {
+                console.error('Server failed to start:', err);
+                process.exit(1);
+            }
+            console.log(`Server listening on port ${PORT}`);
+        });
+    } catch (err) {
+        console.error('Failed to start server:', err);
+        process.exit(1);
+    }
+}
+
+startServer();
+
+// --- Socket.io Logic ---
 io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
 
@@ -221,8 +278,6 @@ io.on('connection', (socket) => {
         try {
             socket.username = username;
             socket.userId = userId;
-
-            // this will make the user automatically join a general group
             const generalRoom = 'General Judges';
             socket.join(generalRoom);
 
@@ -233,7 +288,6 @@ io.on('connection', (socket) => {
             });
             socket.emit('roomMessages', { room: generalRoom, messages: generalMessages });
 
-            // Check and create poll for General Judges if not exists
             let generalPoll = await prisma.poll.findUnique({ where: { room: generalRoom } });
             if (!generalPoll) {
                 generalPoll = await prisma.poll.create({
@@ -242,7 +296,6 @@ io.on('connection', (socket) => {
                         question: `Vote for the best in ${generalRoom}`,
                     },
                 });
-
                 await prisma.vote.createMany({
                     data: [
                         { option: 'Nominee A', count: 0, pollId: generalPoll.id },
@@ -251,15 +304,12 @@ io.on('connection', (socket) => {
                     ],
                 });
             }
-
             const generalVotes = await prisma.vote.findMany({ where: { pollId: generalPoll.id } });
             socket.emit('pollData', { room: generalRoom, poll: { ...generalPoll, votes: generalVotes } });
 
-            // Join the category based subrooms
             const groups = categoryGroups[category] || [];
             for (const group of groups) {
                 socket.join(group);
-
                 const messages = await prisma.message.findMany({
                     where: { room: group },
                     orderBy: { timestamp: 'asc' },
@@ -267,7 +317,6 @@ io.on('connection', (socket) => {
                 });
                 socket.emit('roomMessages', { room: group, messages });
 
-                // Check and create poll for this room if not exists
                 let poll = await prisma.poll.findUnique({ where: { room: group } });
                 if (!poll) {
                     poll = await prisma.poll.create({
@@ -276,7 +325,6 @@ io.on('connection', (socket) => {
                             question: `Vote for the best in ${group}`,
                         },
                     });
-
                     await prisma.vote.createMany({
                         data: [
                             { option: 'Nominee A', count: 0, pollId: poll.id },
@@ -285,14 +333,10 @@ io.on('connection', (socket) => {
                         ],
                     });
                 }
-
                 const votes = await prisma.vote.findMany({ where: { pollId: poll.id } });
                 socket.emit('pollData', { room: group, poll: { ...poll, votes } });
             }
-
-            // Send available rooms to frontend
             socket.emit('availableRooms', [generalRoom, ...groups]);
-
         } catch (err) {
             console.error('Error in join event:', err);
             socket.emit('error', { message: 'Failed to join rooms.' });
@@ -309,7 +353,6 @@ io.on('connection', (socket) => {
                     text: message,
                 },
             });
-            console.log(`[MESSAGE STORED] ${msg.username} (${msg.userId}) in ${msg.room}: ${msg.text}`);
             io.to(room).emit('message', { room, message: msg });
         } catch (err) {
             console.error('Error in sendMessage:', err);
@@ -321,7 +364,6 @@ io.on('connection', (socket) => {
         try {
             const poll = await prisma.poll.findUnique({ where: { room } });
             if (!poll) return;
-
             let vote = await prisma.vote.findUnique({ where: { pollId: poll.id, option } });
             if (!vote) {
                 vote = await prisma.vote.create({ data: { pollId: poll.id, option, count: 1 } });
@@ -332,9 +374,6 @@ io.on('connection', (socket) => {
                     data: { count: vote.count },
                 });
             }
-
-            console.log(`[VOTE STORED] ${socket.username} (${socket.userId}) voted in ${room} for ${option}`);
-
             const votes = await prisma.vote.findMany({ where: { pollId: poll.id } });
             io.to(room).emit('pollData', { room, poll: { ...poll, votes } });
         } catch (err) {
@@ -348,13 +387,5 @@ io.on('connection', (socket) => {
     });
 });
 
-// Ensure your database is PostgreSQL and you have installed 'pg' and 'pg-hstore'.
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, (err) => {
-    if (err) {
-        console.error('Server failed to start:', err);
-        process.exit(1);
-    }
-    console.log(`Server listening on port ${PORT}`);
-});
+
 

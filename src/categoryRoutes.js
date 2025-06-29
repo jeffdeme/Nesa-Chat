@@ -2,21 +2,25 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('./dbClient');
 
-// Get all categories
+// Get all main categories (with their subcategories)
 router.get('/', async (req, res) => {
     try {
-        const categories = await prisma.category.findMany();
+        const categories = await prisma.category.findMany({
+            where: { parentId: null },
+            include: { subcategories: true }
+        });
         res.json(categories);
     } catch (error) {
         res.status(500).json({ error: 'Failed to fetch categories' });
     }
 });
 
-// Get a single category by ID
+// Get a single category by ID (with its subcategories)
 router.get('/:id', async (req, res) => {
     try {
         const category = await prisma.category.findUnique({
-            where: { id: parseInt(req.params.id) }
+            where: { id: parseInt(req.params.id) },
+            include: { subcategories: true }
         });
         if (!category) return res.status(404).json({ error: 'Category not found' });
         res.json(category);

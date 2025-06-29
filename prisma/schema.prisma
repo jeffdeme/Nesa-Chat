@@ -8,10 +8,13 @@ datasource db {
 }
 
 model Category {
-  id    Int    @id @default(autoincrement())
-  name  String
+  id            Int            @id @default(autoincrement())
+  name          String         @unique
+  parentId      Int?
+  parent        Category?      @relation("CategoryToSubcategories", fields: [parentId], references: [id])
+  subcategories Category[]      @relation("CategoryToSubcategories")
+
   @@map("categories")
-  @@unique([name])
 }
 
 model Message {
