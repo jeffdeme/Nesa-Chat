@@ -2,20 +2,21 @@ require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
+const cors = require('cors');
 const { PrismaClient } = require('@prisma/client');
 const categoryRoutes = require('./src/categoryRoutes');
 const messageRoutes = require('./src/messageRoutes');
 const pollRoutes = require('./src/pollRoutes');
 const voteRoutes = require('./src/voteRoutes');
-
 const prisma = new PrismaClient();
 
 const app = express();
+app.use(cors({ origin: process.env.CLIENT_URL || '*', credentials: true }));
 app.use(express.json());
-app.use('/categories', categoryRoutes);
-app.use('/messages', messageRoutes);
-app.use('/polls', pollRoutes);
-app.use('/votes', voteRoutes);
+app.use('/api/categories', categoryRoutes);
+app.use('/api/messages', messageRoutes);
+app.use('/api/polls', pollRoutes);
+app.use('/api/votes', voteRoutes);
 
 const server = http.createServer(app);
 const io = new Server(server, {
